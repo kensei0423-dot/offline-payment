@@ -1,0 +1,21 @@
+{
+  "merchants": [
+    {
+      "trackingId": "m_9ac3eaa060dc",
+      "merchantId": "6DQ83FGGPSE3J",
+      "name": "China Eastern Airlines",
+      "email": "kising-MP@126.com",
+      "status": "active",
+      "permissionsGranted": true,
+      "onboardedAt": "2026-04-09T13:04:44.197Z"
+    },
+    {
+      "trackingId": "m_4cde56bc9498",
+      "merchantId": "CCJZRHDFFX72L",
+      "name": "CCJZRHDFFX72L",
+      "status": "active",
+      "permissionsGranted": true,
+      "onboardedAt": "2026-04-09T13:13:22.662Z"
+    }
+  ]
+}
