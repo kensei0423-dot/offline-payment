@@ -1,0 +1,10 @@
+{
+  "name": "offline-payment",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PayPal QR Code 线下扫码支付",
+  "dependencies": {
+    "dotenv": "^16.4.0",
+    "express": "^4.21.0"
+  }
+}
