@@ -614,7 +614,7 @@ app.get('/success', (req, res) => {
       document.querySelector('.checkmark svg').style.stroke = '#721c24';
       document.querySelector('h2').textContent = '订单已取消';
       document.querySelector('h2').style.color = '#721c24';
-      document.getElementById('content').innerHTML = '<p class="cancelled">' + msg + '</p>';
+      document.getElementById('content').innerHTML = '<p class="cancelled">' + msg + '</p><a href="/lookup.html" style="display:inline-block;margin-top:16px;color:#0070ba;font-size:14px;">查询取货码</a>';
     }
 
     function showSuccess(data) {
@@ -673,7 +673,7 @@ app.get('/success', (req, res) => {
               showSuccess({ pickupCode: d.pickupCode, order });
             });
           } else {
-            document.getElementById('content').innerHTML = '<p style="color:#888">连接中断，请刷新页面重试</p>';
+            document.getElementById('content').innerHTML = '<p style="color:#888">连接中断</p><a href="/lookup.html" style="display:inline-block;margin-top:12px;color:#0070ba;font-size:14px;">手动查询取货码</a>';
           }
         });
       };
