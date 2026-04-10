@@ -115,14 +115,33 @@ async function getMerchantAuth(merchantId) {
   return { token: await getToken(), base: BASE, headers: partnerHeaders(merchantId) };
 }
 
-// ─── Order State ────────────────────────────────────────────
+// ─── Order State (持久化到文件) ──────────────────────────────
 const cancelledOrders = new Set();
-const pickupCodes = {};
-const orderMerchantMap = {};  // orderId → merchantId
+const ORDER_STATE_FILE = path.join(__dirname, 'order-state.json');
+
+function loadOrderState() {
+  try {
+    return JSON.parse(fs.readFileSync(ORDER_STATE_FILE, 'utf8'));
+  } catch { return { pickupCodes: {}, orderMerchantMap: {} }; }
+}
+
+function saveOrderState(state) {
+  fs.writeFileSync(ORDER_STATE_FILE, JSON.stringify(state));
+}
+
+// 启动时从文件恢复
+const _orderState = loadOrderState();
+const pickupCodes = _orderState.pickupCodes;
+const orderMerchantMap = _orderState.orderMerchantMap;
+
+function persistOrderState() {
+  saveOrderState({ pickupCodes, orderMerchantMap });
+}
 
 function getPickupCode(orderId) {
   if (!pickupCodes[orderId]) {
     pickupCodes[orderId] = String(Math.floor(1000 + Math.random() * 9000));
+    persistOrderState();
   }
   return pickupCodes[orderId];
 }
@@ -544,7 +563,10 @@ app.post('/create-order', async (req, res) => {
     }
 
     // Track order → merchant mapping
-    if (merchantId) orderMerchantMap[order.id] = merchantId;
+    if (merchantId) {
+      orderMerchantMap[order.id] = merchantId;
+      persistOrderState();
+    }
 
     const approveLink = order.links?.find(l => l.rel === 'payer-action');
     console.log(`[Order Created] ${order.id} — $${amount} ${currency}${merchantId ? ` (merchant: ${merchantId})` : ''}`);
