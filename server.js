@@ -766,6 +766,24 @@ app.get('/order-watch/:id', async (req, res) => {
   const startTime = Date.now();
   const POLL_TIMEOUT = 30 * 1000; // 30 seconds
 
+  // 立即检查：如果已有取货码说明已完成，直接推送
+  if (pickupCodes[orderId]) {
+    try {
+      const auth = await getMerchantAuth(merchantId);
+      const r = await fetch(`${auth.base}/v2/checkout/orders/${orderId}`, {
+        headers: { Authorization: `Bearer ${auth.token}`, ...auth.headers },
+      });
+      const order = await r.json();
+      if (order.status === 'COMPLETED') {
+        order.pickupCode = pickupCodes[orderId];
+        res.write(`data: ${JSON.stringify(order)}\n\n`);
+        res.end();
+        console.log(`[SSE Retry] ${orderId} — pushed existing pickup code ${pickupCodes[orderId]}`);
+        return;
+      }
+    } catch (_) {}
+  }
+
   const poll = async () => {
     if (stopped) return;
     if (Date.now() - startTime > POLL_TIMEOUT) {
