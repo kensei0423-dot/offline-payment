@@ -210,6 +210,11 @@
           eventSource.close();
           eventSource = null;
           showSuccessModal(order);
+        } else if (order.status === 'TIMEOUT') {
+          eventSource.close();
+          eventSource = null;
+          showError('等待支付超时，请重新生成二维码');
+          resetAll();
         }
       };
       eventSource.onerror = () => {};

@@ -763,9 +763,17 @@ app.get('/order-watch/:id', async (req, res) => {
 
   let stopped = false;
   req.on('close', () => { stopped = true; });
+  const startTime = Date.now();
+  const POLL_TIMEOUT = 30 * 1000; // 30 seconds
 
   const poll = async () => {
     if (stopped) return;
+    if (Date.now() - startTime > POLL_TIMEOUT) {
+      res.write('data: {"status":"TIMEOUT"}\n\n');
+      res.end();
+      console.log(`[SSE Timeout] ${orderId}`);
+      return;
+    }
     if (cancelledOrders.has(orderId)) {
       res.write('data: {"status":"CANCELLED"}\n\n');
       res.end();
@@ -788,6 +796,12 @@ app.get('/order-watch/:id', async (req, res) => {
           },
         });
         const captured = await cr.json();
+        if (captured.status !== 'COMPLETED') {
+          // Capture 失败，不推送成功，继续轮询重试
+          console.error(`[SSE Capture Failed] ${orderId} — ${captured.status || JSON.stringify(captured)}`);
+          if (!stopped) setTimeout(poll, 3000);
+          return;
+        }
         const code = getPickupCode(orderId);
         console.log(`[SSE Captured] ${orderId} — ${captured.status} — Pickup: ${code}`);
         captured.pickupCode = code;
