@@ -607,7 +607,13 @@ app.get('/success', (req, res) => {
     <div id="content"><span class="loading"></span></div>
   </div>
   <script>
-    const orderId = '${orderId}';
+    // 保存 orderId 到 sessionStorage，刷新后可恢复
+    let orderId = '${orderId}';
+    if (orderId) {
+      sessionStorage.setItem('lastOrderId', orderId);
+    } else {
+      orderId = sessionStorage.getItem('lastOrderId') || '';
+    }
 
     function showCancelled(msg) {
       document.querySelector('.checkmark').style.background = '#f8d7da';
