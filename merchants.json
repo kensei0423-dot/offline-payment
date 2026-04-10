@@ -16,6 +16,17 @@
       "status": "active",
       "permissionsGranted": true,
       "onboardedAt": "2026-04-09T13:13:22.662Z"
+    },
+    {
+      "trackingId": "d_a3320660451c",
+      "merchantId": "AbJFHMTQCbgP5MK7PUAH9tzLm6T3JXZiriOJwYCfr-isbQK1o3GOXJB-gAvUoziUh3yWtMgr5bkaORP2",
+      "name": "Test Direct Shop",
+      "clientId": "AbJFHMTQCbgP5MK7PUAH9tzLm6T3JXZiriOJwYCfr-isbQK1o3GOXJB-gAvUoziUh3yWtMgr5bkaORP2",
+      "clientSecret": "EMPrLVM8FKmkCKtCkPlxDguzT3E9RpPMo3CeTMh0Vlvz2aa8bRgVXds556XiHf8GZ90z-IW6MdkLUX-g",
+      "env": "sandbox",
+      "type": "direct",
+      "status": "active",
+      "onboardedAt": "2026-04-10T01:29:00.036Z"
     }
   ]
 }

@@ -176,7 +176,7 @@
             <li class="merchant-item">
               <div class="merchant-info">
                 <h3>${escapeHtml(m.name || m.merchantId || m.trackingId)}</h3>
-                <p>ID: ${m.merchantId || '待激活'} <span class="merchant-type">· ${typeLabel}</span></p>
+                <p><span class="merchant-type">${typeLabel}</span></p>
               </div>
               <div style="display:flex; align-items:center; gap:12px;">
                 <span class="merchant-status status-${m.status || 'active'}">${m.status === 'active' ? '已激活' : m.status}</span>
