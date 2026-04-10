@@ -10,15 +10,19 @@
     .header { background: linear-gradient(135deg, #0070ba 0%, #003087 100%); color: #fff; padding: 48px 16px; text-align: center; }
     .header h1 { font-size: 32px; margin-bottom: 8px; }
     .header p { font-size: 16px; opacity: .85; margin-bottom: 24px; }
+    .header-buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
     .btn { display: inline-block; padding: 14px 32px; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all .2s; text-decoration: none; }
     .btn-onboard { background: #ffc439; color: #333; }
     .btn-onboard:hover { background: #f0b429; }
+    .btn-direct { background: rgba(255,255,255,.2); color: #fff; border: 2px solid rgba(255,255,255,.5); }
+    .btn-direct:hover { background: rgba(255,255,255,.3); }
     .container { max-width: 640px; margin: 0 auto; padding: 32px 16px; }
     .section-title { font-size: 18px; color: #555; margin-bottom: 16px; }
     .merchant-list { list-style: none; }
     .merchant-item { background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 2px 12px rgba(0,0,0,.06); margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
     .merchant-info h3 { font-size: 16px; margin-bottom: 4px; }
     .merchant-info p { font-size: 13px; color: #888; }
+    .merchant-type { font-size: 11px; color: #aaa; }
     .merchant-status { font-size: 12px; padding: 4px 10px; border-radius: 12px; font-weight: 600; }
     .status-active { background: #d4edda; color: #155724; }
     .btn-go { background: #0070ba; color: #fff; padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: 600; text-decoration: none; transition: background .2s; }
@@ -27,39 +31,66 @@
     .empty-state p { font-size: 14px; margin-top: 8px; }
     .loading { display: inline-block; width: 16px; height: 16px; border: 2px solid #ccc; border-top-color: #0070ba; border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .how-it-works { background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 2px 12px rgba(0,0,0,.06); margin-bottom: 32px; }
-    .how-it-works h2 { font-size: 16px; color: #555; margin-bottom: 16px; }
-    .steps { counter-reset: step; }
-    .step { position: relative; padding-left: 40px; margin-bottom: 16px; font-size: 14px; color: #666; }
-    .step::before { counter-increment: step; content: counter(step); position: absolute; left: 0; top: -2px; width: 28px; height: 28px; background: #0070ba; color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; }
-    .step:last-child { margin-bottom: 0; }
+
+    /* Modal */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 100; justify-content: center; align-items: center; }
+    .modal-overlay.active { display: flex; }
+    .modal { background: #fff; border-radius: 16px; padding: 32px; max-width: 480px; width: 90%; animation: modalIn .3s ease; }
+    @keyframes modalIn { from { transform: scale(.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    .modal h3 { font-size: 20px; margin-bottom: 20px; text-align: center; color: #333; }
+    .modal label { display: block; font-size: 13px; color: #666; margin-bottom: 4px; margin-top: 12px; }
+    .modal input { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; outline: none; transition: border .2s; }
+    .modal input:focus { border-color: #0070ba; }
+    .modal .btn-submit { width: 100%; padding: 14px; background: #0070ba; color: #fff; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 20px; }
+    .modal .btn-submit:hover { background: #005ea6; }
+    .modal .btn-submit:disabled { background: #ccc; cursor: not-allowed; }
+    .modal .btn-cancel { width: 100%; padding: 12px; background: #eee; color: #666; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; margin-top: 8px; }
+    .modal .btn-cancel:hover { background: #ddd; }
+    .modal .error-msg { background: #fff3f3; border: 1px solid #fcc; color: #c00; padding: 10px; border-radius: 8px; font-size: 13px; margin-top: 12px; display: none; }
+    .modal .hint { font-size: 12px; color: #aaa; margin-top: 4px; }
   </style>
 </head>
 <body>
   <div class="header">
     <h1>Offline Payment Platform</h1>
     <p>PayPal QR 扫码收款 — 多商户平台</p>
-    <button class="btn btn-onboard" onclick="onboard()">商户入驻</button>
+    <div class="header-buttons">
+      <button class="btn btn-onboard" onclick="onboard()">Partner 授权入驻</button>
+      <button class="btn btn-direct" onclick="showDirectModal()">输入 Client ID 入驻</button>
+    </div>
   </div>
 
   <div class="container">
-    <div class="how-it-works">
-      <h2>如何使用</h2>
-      <div class="steps">
-        <div class="step">点击「商户入驻」，跳转 PayPal 完成授权</div>
-        <div class="step">授权成功后获得专属收款链接</div>
-        <div class="step">打开收款页面，输入金额生成二维码</div>
-        <div class="step">买家扫码支付，钱直接进入您的 PayPal 账户</div>
-      </div>
-    </div>
-
     <h2 class="section-title">已入驻商户</h2>
     <div id="merchant-list-wrapper">
       <div style="text-align:center; padding:24px;"><span class="loading"></span></div>
     </div>
   </div>
 
+  <!-- Direct Onboard Modal -->
+  <div class="modal-overlay" id="direct-modal">
+    <div class="modal">
+      <h3>输入 PayPal 凭证入驻</h3>
+      <label>商户名称</label>
+      <input type="text" id="d-name" placeholder="例：我的店铺">
+      <label>Client ID</label>
+      <input type="text" id="d-client-id" placeholder="PayPal Client ID">
+      <p class="hint">在 developer.paypal.com → Apps & Credentials 获取</p>
+      <label>Client Secret</label>
+      <input type="password" id="d-client-secret" placeholder="PayPal Client Secret">
+      <label>环境</label>
+      <select id="d-env" style="width:100%; padding:12px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
+        <option value="sandbox">Sandbox（测试）</option>
+        <option value="live">Live（生产）</option>
+      </select>
+      <div class="error-msg" id="d-error"></div>
+      <button class="btn-submit" id="d-submit" onclick="submitDirect()">验证并入驻</button>
+      <button class="btn-cancel" onclick="closeDirectModal()">取消</button>
+    </div>
+  </div>
+
   <script>
+    // Partner onboard
     async function onboard() {
       try {
         const r = await fetch('/onboard');
@@ -74,6 +105,59 @@
       }
     }
 
+    // Direct onboard
+    function showDirectModal() {
+      document.getElementById('direct-modal').classList.add('active');
+      document.getElementById('d-name').focus();
+    }
+    function closeDirectModal() {
+      document.getElementById('direct-modal').classList.remove('active');
+      document.getElementById('d-error').style.display = 'none';
+    }
+
+    async function submitDirect() {
+      const name = document.getElementById('d-name').value.trim();
+      const clientId = document.getElementById('d-client-id').value.trim();
+      const clientSecret = document.getElementById('d-client-secret').value.trim();
+      const env = document.getElementById('d-env').value;
+      const errEl = document.getElementById('d-error');
+      const btn = document.getElementById('d-submit');
+
+      if (!name || !clientId || !clientSecret) {
+        errEl.textContent = '请填写所有字段';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = '验证中...';
+      errEl.style.display = 'none';
+
+      try {
+        const r = await fetch('/onboard/direct', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, clientId, clientSecret, env }),
+        });
+        const data = await r.json();
+        if (data.success) {
+          closeDirectModal();
+          loadMerchants();
+          alert('入驻成功！商户 ID: ' + data.merchantId);
+        } else {
+          errEl.textContent = data.error || '验证失败';
+          errEl.style.display = 'block';
+        }
+      } catch (err) {
+        errEl.textContent = '请求失败：' + err.message;
+        errEl.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '验证并入驻';
+      }
+    }
+
+    // Load merchants
     async function loadMerchants() {
       try {
         const r = await fetch('/merchants');
@@ -81,17 +165,18 @@
         const wrapper = document.getElementById('merchant-list-wrapper');
 
         if (!merchants || merchants.length === 0) {
-          wrapper.innerHTML = '<div class="empty-state"><p>暂无入驻商户</p><p>点击上方「商户入驻」开始</p></div>';
+          wrapper.innerHTML = '<div class="empty-state"><p>暂无入驻商户</p><p>点击上方按钮开始入驻</p></div>';
           return;
         }
 
         let html = '<ul class="merchant-list">';
         for (const m of merchants) {
+          const typeLabel = m.type === 'direct' ? 'Client ID' : 'Partner';
           html += `
             <li class="merchant-item">
               <div class="merchant-info">
-                <h3>${escapeHtml(m.name || m.trackingId)}</h3>
-                <p>ID: ${m.merchantId || '待激活'}</p>
+                <h3>${escapeHtml(m.name || m.merchantId || m.trackingId)}</h3>
+                <p>ID: ${m.merchantId || '待激活'} <span class="merchant-type">· ${typeLabel}</span></p>
               </div>
               <div style="display:flex; align-items:center; gap:12px;">
                 <span class="merchant-status status-${m.status || 'active'}">${m.status === 'active' ? '已激活' : m.status}</span>

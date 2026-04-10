@@ -72,6 +72,49 @@ function findMerchant(merchantId) {
   return loadMerchants().merchants.find(m => m.merchantId === merchantId);
 }
 
+// ─── Direct Merchant Token Cache ────────────────────────────
+const directTokenCache = {}; // merchantId → { token, expiry }
+
+async function getDirectToken(merchant) {
+  const cached = directTokenCache[merchant.merchantId];
+  if (cached && Date.now() < cached.expiry - 60_000) return cached;
+
+  const base = merchant.env === 'live'
+    ? 'https://api.paypal.com'
+    : 'https://api.sandbox.paypal.com';
+  const creds = Buffer.from(`${merchant.clientId}:${merchant.clientSecret}`).toString('base64');
+  const r = await fetch(`${base}/v1/oauth2/token`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${creds}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: 'grant_type=client_credentials',
+  });
+  const data = await r.json();
+  const result = {
+    token: data.access_token,
+    expiry: Date.now() + data.expires_in * 1000,
+    base,
+  };
+  directTokenCache[merchant.merchantId] = result;
+  return result;
+}
+
+// Helper: get token + base URL + headers for any merchant type
+async function getMerchantAuth(merchantId) {
+  if (!merchantId) {
+    return { token: await getToken(), base: BASE, headers: {} };
+  }
+  const merchant = findMerchant(merchantId);
+  if (merchant?.type === 'direct') {
+    const dt = await getDirectToken(merchant);
+    return { token: dt.token, base: dt.base, headers: {} };
+  }
+  // Partner mode
+  return { token: await getToken(), base: BASE, headers: partnerHeaders(merchantId) };
+}
+
 // ─── Order State ────────────────────────────────────────────
 const cancelledOrders = new Set();
 const pickupCodes = {};
@@ -345,16 +388,91 @@ app.get('/onboard/return', async (req, res) => {
 </html>`);
 });
 
-// 获取所有商户列表
+// ─── Direct Onboard（商户输入 Client ID/Secret）─────────────
+app.post('/onboard/direct', async (req, res) => {
+  const { name, clientId, clientSecret, env = 'sandbox' } = req.body;
+  if (!name || !clientId || !clientSecret) {
+    return res.status(400).json({ error: '请填写所有字段' });
+  }
+
+  // Verify credentials by fetching a token
+  const base = env === 'live'
+    ? 'https://api.paypal.com'
+    : 'https://api.sandbox.paypal.com';
+  try {
+    const creds = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+    const r = await fetch(`${base}/v1/oauth2/token`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${creds}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: 'grant_type=client_credentials',
+    });
+    const tokenData = await r.json();
+    if (!r.ok || !tokenData.access_token) {
+      return res.status(400).json({ error: 'Client ID 或 Secret 无效' });
+    }
+
+    // Get merchant ID from userinfo
+    const infoRes = await fetch(`${base}/v1/oauth2/token/userinfo?schema=openid`, {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+    let merchantPayPalId = clientId; // fallback
+    if (infoRes.ok) {
+      const info = await infoRes.json();
+      if (info.payer_id) merchantPayPalId = info.payer_id;
+    }
+
+    // Save merchant
+    const db = loadMerchants();
+    const existing = db.merchants.find(m => m.merchantId === merchantPayPalId);
+    if (existing) {
+      existing.name = name;
+      existing.clientId = clientId;
+      existing.clientSecret = clientSecret;
+      existing.env = env;
+      existing.type = 'direct';
+      existing.status = 'active';
+    } else {
+      db.merchants.push({
+        trackingId: `d_${crypto.randomBytes(6).toString('hex')}`,
+        merchantId: merchantPayPalId,
+        name,
+        clientId,
+        clientSecret,
+        env,
+        type: 'direct',
+        status: 'active',
+        onboardedAt: new Date().toISOString(),
+      });
+    }
+    saveMerchants(db);
+    console.log(`[Direct Onboard] ${name} → ${merchantPayPalId}`);
+
+    res.json({ success: true, merchantId: merchantPayPalId });
+  } catch (err) {
+    console.error('[Direct Onboard Error]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 获取所有商户列表（隐藏敏感字段）
+function sanitizeMerchants(merchants) {
+  return merchants.map(({ clientSecret, clientId, ...rest }) => ({
+    ...rest,
+    type: rest.type || 'partner',
+  }));
+}
+
 app.get('/merchants', async (req, res) => {
-  // 自动补全 pending 商户
   const db = loadMerchants();
   const hasPending = db.merchants.some(m => !m.merchantId);
   if (hasPending) {
     const merchants = await syncPendingMerchants();
-    return res.json(merchants);
+    return res.json(sanitizeMerchants(merchants));
   }
-  res.json(db.merchants);
+  res.json(sanitizeMerchants(db.merchants));
 });
 
 // 手动触发同步
@@ -375,8 +493,10 @@ app.post('/create-order', async (req, res) => {
   }
 
   try {
-    const token = await getToken();
+    const auth = await getMerchantAuth(merchantId);
     const host = `${req.protocol}://${req.get('host')}`;
+    const merchant = merchantId ? findMerchant(merchantId) : null;
+    const isDirect = merchant?.type === 'direct';
 
     const purchaseUnit = {
       amount: {
@@ -386,8 +506,8 @@ app.post('/create-order', async (req, res) => {
       ...(description ? { description } : {}),
     };
 
-    // Multi-merchant: set payee to merchant
-    if (merchantId) {
+    // Partner mode: set payee to merchant
+    if (merchantId && !isDirect) {
       purchaseUnit.payee = { merchant_id: merchantId };
     }
 
@@ -407,15 +527,13 @@ app.post('/create-order', async (req, res) => {
       },
     };
 
-    const headers = {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      ...partnerHeaders(merchantId),
-    };
-
-    const r = await fetch(`${BASE}/v2/checkout/orders`, {
+    const r = await fetch(`${auth.base}/v2/checkout/orders`, {
       method: 'POST',
-      headers,
+      headers: {
+        Authorization: `Bearer ${auth.token}`,
+        'Content-Type': 'application/json',
+        ...auth.headers,
+      },
       body: JSON.stringify(orderBody),
     });
 
@@ -554,10 +672,10 @@ app.get('/success', (req, res) => {
 // ─── Get Order Status ───────────────────────────────────────
 app.get('/order-status/:id', async (req, res) => {
   try {
-    const token = await getToken();
     const merchantId = orderMerchantMap[req.params.id];
-    const r = await fetch(`${BASE}/v2/checkout/orders/${req.params.id}`, {
-      headers: { Authorization: `Bearer ${token}`, ...partnerHeaders(merchantId) },
+    const auth = await getMerchantAuth(merchantId);
+    const r = await fetch(`${auth.base}/v2/checkout/orders/${req.params.id}`, {
+      headers: { Authorization: `Bearer ${auth.token}`, ...auth.headers },
     });
     const order = await r.json();
     if (!r.ok) return res.status(r.status).json({ error: order });
@@ -571,14 +689,14 @@ app.get('/order-status/:id', async (req, res) => {
 // ─── Capture Order ──────────────────────────────────────────
 app.post('/capture-order/:id', async (req, res) => {
   try {
-    const token = await getToken();
     const merchantId = orderMerchantMap[req.params.id];
-    const r = await fetch(`${BASE}/v2/checkout/orders/${req.params.id}/capture`, {
+    const auth = await getMerchantAuth(merchantId);
+    const r = await fetch(`${auth.base}/v2/checkout/orders/${req.params.id}/capture`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${auth.token}`,
         'Content-Type': 'application/json',
-        ...partnerHeaders(merchantId),
+        ...auth.headers,
       },
     });
     const result = await r.json();
@@ -601,20 +719,20 @@ app.post('/cancel-order/:id', async (req, res) => {
   console.log(`[Cancelled] ${orderId}`);
 
   try {
-    const token = await getToken();
     const merchantId = orderMerchantMap[orderId];
-    const r = await fetch(`${BASE}/v2/checkout/orders/${orderId}`, {
-      headers: { Authorization: `Bearer ${token}`, ...partnerHeaders(merchantId) },
+    const auth = await getMerchantAuth(merchantId);
+    const r = await fetch(`${auth.base}/v2/checkout/orders/${orderId}`, {
+      headers: { Authorization: `Bearer ${auth.token}`, ...auth.headers },
     });
     const order = await r.json();
     const captureId = order.purchase_units?.[0]?.payments?.captures?.[0]?.id;
     if (captureId && order.status === 'COMPLETED') {
-      const rr = await fetch(`${BASE}/v2/payments/captures/${captureId}/refund`, {
+      const rr = await fetch(`${auth.base}/v2/payments/captures/${captureId}/refund`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${auth.token}`,
           'Content-Type': 'application/json',
-          ...partnerHeaders(merchantId),
+          ...auth.headers,
         },
       });
       const refund = await rr.json();
@@ -654,19 +772,19 @@ app.get('/order-watch/:id', async (req, res) => {
       return;
     }
     try {
-      const token = await getToken();
-      const r = await fetch(`${BASE}/v2/checkout/orders/${orderId}`, {
-        headers: { Authorization: `Bearer ${token}`, ...partnerHeaders(merchantId) },
+      const auth = await getMerchantAuth(merchantId);
+      const r = await fetch(`${auth.base}/v2/checkout/orders/${orderId}`, {
+        headers: { Authorization: `Bearer ${auth.token}`, ...auth.headers },
       });
       const order = await r.json();
 
       if (order.status === 'APPROVED' && !cancelledOrders.has(orderId)) {
-        const cr = await fetch(`${BASE}/v2/checkout/orders/${orderId}/capture`, {
+        const cr = await fetch(`${auth.base}/v2/checkout/orders/${orderId}/capture`, {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${auth.token}`,
             'Content-Type': 'application/json',
-            ...partnerHeaders(merchantId),
+            ...auth.headers,
           },
         });
         const captured = await cr.json();
