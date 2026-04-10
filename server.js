@@ -608,61 +608,75 @@ app.get('/success', (req, res) => {
   </div>
   <script>
     const orderId = '${orderId}';
-    async function fetchPickupCode(retries) {
-      for (let i = 0; i < retries; i++) {
-        const r = await fetch('/pickup-code/' + orderId);
-        if (r.ok) { const d = await r.json(); return d.pickupCode; }
-        await new Promise(ok => setTimeout(ok, 2000));
-      }
-      return null;
+
+    function showCancelled(msg) {
+      document.querySelector('.checkmark').style.background = '#f8d7da';
+      document.querySelector('.checkmark svg').style.stroke = '#721c24';
+      document.querySelector('h2').textContent = '订单已取消';
+      document.querySelector('h2').style.color = '#721c24';
+      document.getElementById('content').innerHTML = '<p class="cancelled">' + msg + '</p>';
     }
+
+    function showSuccess(data) {
+      const order = data.order || {};
+      const capture = data.capture || order.purchase_units?.[0]?.payments?.captures?.[0];
+      const amt = capture?.amount || order.purchase_units?.[0]?.amount;
+      const payer = order.payer;
+      let html = '';
+      if (data.pickupCode) {
+        html += '<div class="pickup-box"><div class="pickup-label">取货码</div><div class="pickup-code">' + data.pickupCode + '</div></div>';
+      }
+      html += '<div class="info">';
+      if (amt) html += '<div class="info-row"><span class="label">金额</span><span class="value">' + amt.value + ' ' + amt.currency_code + '</span></div>';
+      html += '<div class="info-row"><span class="label">订单号</span><span class="value">' + order.id + '</span></div>';
+      if (payer?.name) html += '<div class="info-row"><span class="label">付款人</span><span class="value">' + (payer.name.given_name||'') + ' ' + (payer.name.surname||'') + '</span></div>';
+      if (payer?.email_address) html += '<div class="info-row"><span class="label">邮箱</span><span class="value">' + payer.email_address + '</span></div>';
+      if (capture?.create_time) html += '<div class="info-row"><span class="label">时间</span><span class="value">' + new Date(capture.create_time).toLocaleString() + '</span></div>';
+      html += '</div>';
+      html += '<p class="hint">请向商家出示取货码</p>';
+      document.getElementById('content').innerHTML = html;
+    }
+
     (async () => {
       if (!orderId) { document.getElementById('content').innerHTML = '<p style="color:#888">交易已完成</p>'; return; }
-      const cancelCheck = await fetch('/cancel-status/' + orderId);
-      const cancelData = await cancelCheck.json();
-      if (cancelData.cancelled) {
-        document.querySelector('.checkmark').style.background = '#f8d7da';
-        document.querySelector('.checkmark svg').style.stroke = '#721c24';
-        document.querySelector('h2').textContent = '订单已取消';
-        document.querySelector('h2').style.color = '#721c24';
-        document.getElementById('content').innerHTML = '<p class="cancelled">该订单已被商家取消</p>';
-        return;
-      }
+
+      // 先检查是否已取消
       try {
-        const [orderRes, pickupCode] = await Promise.all([
-          fetch('/order-status/' + orderId).then(r => r.json()),
-          fetchPickupCode(10),
-        ]);
-        const recheck = await fetch('/cancel-status/' + orderId).then(r => r.json());
-        if (recheck.cancelled) {
-          document.querySelector('.checkmark').style.background = '#f8d7da';
-          document.querySelector('.checkmark svg').style.stroke = '#721c24';
-          document.querySelector('h2').textContent = '订单已取消';
-          document.querySelector('h2').style.color = '#721c24';
-          document.getElementById('content').innerHTML = '<p class="cancelled">该订单已被商家取消，款项将原路退回</p>';
-          return;
+        const cancelData = await fetch('/cancel-status/' + orderId).then(r => r.json());
+        if (cancelData.cancelled) { showCancelled('该订单已被商家取消'); return; }
+      } catch (_) {}
+
+      // 显示等待状态
+      document.getElementById('content').innerHTML = '<p><span class="loading"></span> 正在确认支付结果...</p>';
+
+      // 用 SSE 实时等待 capture 完成 + 取货码
+      const es = new EventSource('/buyer-watch/' + orderId);
+      es.onmessage = (e) => {
+        const data = JSON.parse(e.data);
+        if (data.status === 'COMPLETED') {
+          es.close();
+          showSuccess(data);
+        } else if (data.status === 'CANCELLED') {
+          es.close();
+          showCancelled('该订单已被商家取消，款项将原路退回');
+        } else if (data.status === 'TIMEOUT') {
+          es.close();
+          showCancelled('支付失败，请重新扫码支付');
         }
-        const order = orderRes;
-        const pu = order.purchase_units?.[0];
-        const capture = pu?.payments?.captures?.[0];
-        const amt = capture?.amount || pu?.amount;
-        const payer = order.payer;
-        let html = '';
-        if (pickupCode) {
-          html += '<div class="pickup-box"><div class="pickup-label">取货码</div><div class="pickup-code">' + pickupCode + '</div></div>';
-        }
-        html += '<div class="info">';
-        if (amt) html += '<div class="info-row"><span class="label">金额</span><span class="value">' + amt.value + ' ' + amt.currency_code + '</span></div>';
-        html += '<div class="info-row"><span class="label">订单号</span><span class="value">' + order.id + '</span></div>';
-        if (payer?.name) html += '<div class="info-row"><span class="label">付款人</span><span class="value">' + (payer.name.given_name||'') + ' ' + (payer.name.surname||'') + '</span></div>';
-        if (payer?.email_address) html += '<div class="info-row"><span class="label">邮箱</span><span class="value">' + payer.email_address + '</span></div>';
-        if (capture?.create_time) html += '<div class="info-row"><span class="label">时间</span><span class="value">' + new Date(capture.create_time).toLocaleString() + '</span></div>';
-        html += '</div>';
-        html += '<p class="hint">请向商家出示取货码</p>';
-        document.getElementById('content').innerHTML = html;
-      } catch(e) {
-        document.getElementById('content').innerHTML = '<p style="color:#888">交易已完成</p>';
-      }
+      };
+      es.onerror = () => {
+        // SSE 断开后尝试一次性 fallback
+        es.close();
+        fetch('/pickup-code/' + orderId).then(r => r.ok ? r.json() : null).then(d => {
+          if (d?.pickupCode) {
+            fetch('/order-status/' + orderId).then(r => r.json()).then(order => {
+              showSuccess({ pickupCode: d.pickupCode, order });
+            });
+          } else {
+            document.getElementById('content').innerHTML = '<p style="color:#888">连接中断，请刷新页面重试</p>';
+          }
+        });
+      };
     })();
   </script>
 </body>
@@ -841,6 +855,97 @@ app.get('/order-watch/:id', async (req, res) => {
   };
 
   setTimeout(poll, 3000);
+});
+
+// ─── SSE: Buyer Watch (买家端实时等待取货码) ─────────────────
+app.get('/buyer-watch/:id', async (req, res) => {
+  const orderId = req.params.id;
+  const merchantId = orderMerchantMap[orderId];
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+
+  let stopped = false;
+  req.on('close', () => { stopped = true; });
+  const startTime = Date.now();
+  const BUYER_TIMEOUT = 60 * 1000; // 买家端给 60 秒
+
+  const poll = async () => {
+    if (stopped) return;
+    if (Date.now() - startTime > BUYER_TIMEOUT) {
+      res.write('data: {"status":"TIMEOUT"}\n\n');
+      res.end();
+      return;
+    }
+    if (cancelledOrders.has(orderId)) {
+      res.write('data: {"status":"CANCELLED"}\n\n');
+      res.end();
+      return;
+    }
+
+    // 已有取货码 → 直接推送
+    if (pickupCodes[orderId]) {
+      try {
+        const auth = await getMerchantAuth(merchantId);
+        const r = await fetch(`${auth.base}/v2/checkout/orders/${orderId}`, {
+          headers: { Authorization: `Bearer ${auth.token}`, ...auth.headers },
+        });
+        const order = await r.json();
+        if (order.status === 'COMPLETED') {
+          const capture = order.purchase_units?.[0]?.payments?.captures?.[0];
+          res.write(`data: ${JSON.stringify({ status: 'COMPLETED', pickupCode: pickupCodes[orderId], order, capture })}\n\n`);
+          res.end();
+          return;
+        }
+      } catch (_) {}
+    }
+
+    // 订单 APPROVED 但尚未 capture → 买家端主动触发 capture
+    try {
+      const auth = await getMerchantAuth(merchantId);
+      const r = await fetch(`${auth.base}/v2/checkout/orders/${orderId}`, {
+        headers: { Authorization: `Bearer ${auth.token}`, ...auth.headers },
+      });
+      const order = await r.json();
+
+      if (order.status === 'APPROVED' && !cancelledOrders.has(orderId)) {
+        const cr = await fetch(`${auth.base}/v2/checkout/orders/${orderId}/capture`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${auth.token}`,
+            'Content-Type': 'application/json',
+            ...auth.headers,
+          },
+        });
+        const captured = await cr.json();
+        if (captured.status === 'COMPLETED') {
+          const code = getPickupCode(orderId);
+          const capture = captured.purchase_units?.[0]?.payments?.captures?.[0];
+          console.log(`[Buyer Capture] ${orderId} — Pickup: ${code}`);
+          res.write(`data: ${JSON.stringify({ status: 'COMPLETED', pickupCode: code, order: captured, capture })}\n\n`);
+          res.end();
+          return;
+        }
+      }
+
+      if (order.status === 'COMPLETED') {
+        const code = getPickupCode(orderId);
+        const capture = order.purchase_units?.[0]?.payments?.captures?.[0];
+        res.write(`data: ${JSON.stringify({ status: 'COMPLETED', pickupCode: code, order, capture })}\n\n`);
+        res.end();
+        return;
+      }
+    } catch (err) {
+      console.error('[Buyer Watch]', err.message);
+    }
+
+    if (!stopped) setTimeout(poll, 2000);
+  };
+
+  // 首次立即检查
+  poll();
 });
 
 // ─── Start ──────────────────────────────────────────────────
